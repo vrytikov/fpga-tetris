@@ -1,0 +1,843 @@
+; screen area: 40x30
+RED EQU 14
+
+led_status EQU s0
+shape_state EQU s0
+shape_color EQU s1
+step    EQU s2
+delta   EQU s2
+x       EQU s3
+y       EQU s4
+color   EQU s5
+arg_pixel EQU s6
+arg_x     EQU s7
+arg_y     EQU s8
+save_arg_y EQU s9
+ptr_reg EQU sA
+mask_reg EQU sB
+
+; sA - delay
+; sB - delay
+; sC - delay
+shape_index EQU sD
+tmp_lo    EQU sE
+tmp_hi    EQU sF
+
+
+
+
+adr_lo EQU 1
+adr_hi EQU 2
+pixel  EQU 4
+led_port EQU 8
+btn_port EQU 11
+sw_port EQU 10
+mem_port EQU 12
+
+ga_x0   EQU 10
+ga_y0   EQU 5
+ga_x1   EQU 21
+ga_x1_0 EQU 20
+ga_y1   EQU 26
+
+i equ s1
+wall_color EQU 5
+
+x_left    EQU 11
+x_right   EQU 19
+
+y_top     EQU 6
+y_bottom EQU 25
+
+start:
+        call init_shapes_memory
+        call clear_display
+
+        call draw_game_area
+        load shape_index,0
+next_item:
+        load shape_state,0
+        load x,14
+        load y,4
+        load delta,0
+next_rendering:
+
+        call apply_btns
+
+        load color,shape_color
+        load arg_x,x
+        load arg_y,y
+        call draw_shape_ng
+
+        call hung_on_btns
+        call small_delay
+        call hung_on_pause
+
+        add delta,1
+        comp delta,10
+        jump nz, the_same_y
+
+        load delta,0
+        load arg_x,x
+        load arg_y,y
+        call can_we_move_down_ng
+        jump z, update_color_next_item
+
+        load color,0
+        load arg_x,x
+        load arg_y,y
+        call draw_shape_ng
+
+        add y,1
+        load color,0
+        load arg_x,x
+        load arg_y,y
+        call draw_shape_ng
+
+        jump next_rendering
+the_same_y:
+        load color,0
+        load arg_x,x
+        load arg_y,y
+        call draw_shape_ng
+        jump next_rendering
+
+update_color_next_item:
+        ; TODO: fix it later - make it one call
+        call remove_full_lines
+        call remove_full_lines
+        call remove_full_lines
+
+        call test_game_over
+        jump z, game_over_start
+
+        call inc_shape
+        add shape_color,1
+        and shape_color,0xf
+
+        comp shape_color, wall_color
+        jump nz,not_wall_color_skip
+        add shape_color,1
+        and shape_color,0xf
+
+not_wall_color_skip:
+        test shape_color,shape_color
+        jump nz,next_item
+        load shape_color,1
+        jump next_item
+
+game_over_start:
+        load s0,1
+        load step,1
+
+game_over_loop:
+
+        out  led_status, led_port
+        rr led_status
+
+
+        ;load arg_pixel, color
+        in arg_pixel, sw_port
+        load arg_x,x
+        load arg_y,0
+        call put_pixel
+        call delay
+        load arg_pixel, 0
+        load arg_x,x
+        load arg_y,0
+        call put_pixel
+        add x,step
+        comp x, 20
+        jump z, update_step
+        comp x, 10
+        jump z, update_step
+
+        jump game_over_loop
+
+update_step:
+        xor step, 0xfe
+        jump game_over_loop
+
+draw_game_area:
+        load i,ga_x0
+x_loop:
+        ;----
+        load arg_pixel, wall_color
+        load arg_x,i
+        load arg_y,ga_y1
+        call put_pixel
+
+        ;----
+        add  i,1
+        comp i,ga_x1
+        jump nz, x_loop
+        ;ret
+        load i,ga_y0
+        add i,1
+y_loop:
+        load arg_pixel, wall_color
+        load arg_x,ga_x0
+        load arg_y,i
+        call put_pixel
+        ;----
+        load arg_pixel, wall_color
+        load arg_x,ga_x1_0
+        load arg_y,i
+        call put_pixel
+
+        ;----
+        add  i,1
+        comp i,ga_y1
+        jump nz, y_loop
+
+        RET
+
+delay:
+        load sA,0
+        load sB,0
+        load sC,0
+
+delay_loop:
+        add  sA,1
+        addc sB,0
+        addc sC,0
+        comp sA,0x40
+        jump nz, delay_loop
+        comp sB,0x42
+        jump nz, delay_loop
+        comp sC,0x7
+        jump nz, delay_loop
+        RET
+
+
+small_delay:
+        load sA,0
+        load sB,0
+        load sC,0
+
+small_delay_loop:
+        add  sA,1
+        addc sB,0
+        addc sC,0
+        comp sA,0x40
+        jump nz, small_delay_loop
+        comp sB,0x42
+        jump nz, small_delay_loop
+        comp sC,0x3
+        jump nz, small_delay_loop
+        RET
+
+
+clear_display:
+        load y,0
+cd_y_loop:
+        load x,0
+cd_x_loop:
+        load arg_pixel, 0
+        load arg_x,x
+        load arg_y,y
+        call put_pixel
+        add x,1
+        comp x,40
+        jump nz, cd_x_loop
+        add y,1
+        comp y,30
+        jump nz, cd_y_loop
+
+        RET
+
+put_pixel:
+        load tmp_lo,arg_y
+        load tmp_hi,0
+
+        SL0  tmp_lo
+        SLA  tmp_hi
+        SL0  tmp_lo
+        SLA  tmp_hi
+        SL0  tmp_lo
+        SLA  tmp_hi
+        SL0  tmp_lo
+        SLA  tmp_hi
+        SL0  tmp_lo
+        SLA  tmp_hi
+        SL0  tmp_lo
+        SLA  tmp_hi
+
+        ADD tmp_lo, arg_x
+        ADDC tmp_hi,0
+
+        out tmp_lo, adr_lo
+        out tmp_hi, adr_hi
+        out arg_pixel, pixel
+        RET
+
+calc_addr:
+        load tmp_lo,arg_y
+        load tmp_hi,0
+
+        SL0  tmp_lo
+        SLA  tmp_hi
+        SL0  tmp_lo
+        SLA  tmp_hi
+        SL0  tmp_lo
+        SLA  tmp_hi
+        SL0  tmp_lo
+        SLA  tmp_hi
+        SL0  tmp_lo
+        SLA  tmp_hi
+        SL0  tmp_lo
+        SLA  tmp_hi
+
+        ADD tmp_lo, arg_x
+        ADDC tmp_hi,0
+        ret
+
+get_pixel:
+        call calc_addr
+
+        out tmp_lo, adr_lo
+        out tmp_hi, adr_hi
+        in arg_pixel, mem_port
+        RET
+
+
+;shape_color EQU 5
+; x,y,type, color
+draw_shape:
+        load arg_pixel, color
+        load arg_x,x
+        add arg_x,1
+        load arg_y,y
+        call put_pixel
+
+
+        load arg_x,x
+        load arg_y,y
+        add arg_y,1
+
+        call put_pixel
+
+        add arg_x,1
+        call put_pixel
+
+        add arg_x,1
+        call put_pixel
+        RET
+
+
+test_game_over:
+        load arg_y,y_top
+        call is_full_line
+        ret
+
+is_full_line:
+        load arg_x, x_left
+
+is_full_line_loop:
+        call get_pixel
+
+        test arg_pixel,arg_pixel
+        jump nz, is_full_line_exit_with_z
+
+        comp arg_x, x_right
+        jump z,is_full_line_exit_with_no_z
+        add arg_x, 1
+        jump is_full_line_loop
+is_full_line_exit_with_no_z:
+        ; clear zero flag
+        load arg_x,1
+        test arg_x,arg_x
+        ret
+is_full_line_exit_with_z:
+        ; set zero flag
+        load arg_x,0
+        test arg_x,arg_x
+        ret
+
+is_full_line2:
+        load arg_x, x_left
+
+is_full_line_loop2:
+        call get_pixel
+
+        test arg_pixel,arg_pixel
+        jump z, is_full_line2_exit_with_z
+
+        comp arg_x, x_right
+        jump z,is_full_line2_exit_with_no_z
+        add arg_x, 1
+        jump is_full_line_loop2
+is_full_line2_exit_with_no_z:
+        ; clear zero flag
+        load arg_x,1
+        test arg_x,arg_x
+        ret
+is_full_line2_exit_with_z:
+        ; set zero flag
+        load arg_x,0
+        test arg_x,arg_x
+        ret
+
+
+; input - arg_y
+remove_line_shift:
+        load arg_x,x_left
+remove_line_shift_loop0:
+        load arg_pixel,RED
+        call put_pixel
+
+        comp arg_x,x_right
+        jump z, remove_line_shift_l0
+        add arg_x,1
+        jump remove_line_shift_loop0
+
+remove_line_shift_l0:
+        call delay
+        call delay
+        call delay
+        call delay
+
+        load arg_x,x_left
+remove_line_shift_loop1:
+        load arg_pixel,0
+        call put_pixel
+
+        comp arg_x,x_right
+        jump z,remove_line_shift_l1
+        add arg_x,1
+        jump remove_line_shift_loop1
+
+remove_line_shift_l1:
+        call delay
+;	call delay
+
+
+        ; shit itself
+        load save_arg_y, arg_y
+
+        ;load arg_y,y_bottom
+shift_loop_y:
+;--------------------------------
+        load arg_x,x_left
+
+shift_loop_x:
+;-----------------------------------------
+        sub arg_y,1
+        call get_pixel
+        add arg_y,1
+        call put_pixel
+;---------------------------
+        comp arg_x,x_right
+        jump z,shift_loop_x_done
+        add arg_x,1
+        jump shift_loop_x
+
+shift_loop_x_done:
+
+;--------------------------------
+        comp arg_y,y_top
+        sub arg_y,1
+        jump z, shift_loop_done
+        call delay
+        jump shift_loop_y
+shift_loop_done:
+
+        load arg_y,save_arg_y
+        ret
+
+remove_full_lines:
+        load arg_y,y_bottom
+
+remove_full_lines_loop:
+        call is_full_line2
+        jump z, remove_full_lines_skip_remove
+        ; remove line itself
+        call remove_line_shift
+remove_full_lines_skip_remove:
+        comp arg_y,y_top
+        jump z, remove_full_lines_exit
+        sub arg_y,1
+        jump remove_full_lines_loop
+
+remove_full_lines_exit:
+        ret
+
+init_shapes_memory:
+        load s0,5 ; number of shapes
+        store s0,0
+;-------------------------------
+        load s0,2 ; number of states
+        store s0,1
+
+        load s0,0x7
+        store s0,2
+
+        load s0,0x92
+        store s0,3
+;--------------------------------
+        load s0,4
+        store s0,4
+
+        load s0,0x17
+        store s0,5
+
+        load s0,0x9a
+        store s0,6
+
+        load s0,0x3a
+        store s0,7
+
+        load s0,0xb2
+        store s0,8
+;--------------------------------
+        load s0,2
+        store s0,9
+
+        load s0,0x99
+        store s0,10
+
+        load s0,0x1e
+        store s0,11
+;--------------------------------
+        load s0,2
+        store s0,12
+
+        load s0,0x33
+        store s0,13
+
+        load s0,0x5a
+        store s0,14
+;--------------------------------
+        load s0,1
+        store s0,15
+
+        load s0,0x36
+        store s0,16
+
+        ret
+
+get_shape_mask:
+        load tmp_lo,0
+        load ptr_reg,1
+draw_shape_loop:
+        comp tmp_lo, shape_index
+        jump z,draw_shape_loop_done
+
+        fetch tmp_hi,(ptr_reg)
+        add ptr_reg, tmp_hi
+        add ptr_reg,1
+        add tmp_lo,1
+        jump draw_shape_loop
+
+draw_shape_loop_done:
+        add ptr_reg,1
+        add ptr_reg, shape_state
+        fetch mask_reg, (ptr_reg)
+;
+        ret
+
+draw_shape_ng:
+        call get_shape_mask
+;--
+        load arg_pixel, color
+        add arg_x,1
+        SL0 mask_reg
+        jump nc, clear_color_skip0
+;	load arg_pixel, 0
+        call put_pixel
+;
+clear_color_skip0:
+;--
+
+;--
+        load arg_pixel, color
+        add arg_x,1
+
+        SL0 mask_reg
+        jump nc, clear_color_skip1
+        call put_pixel
+
+clear_color_skip1:
+;--
+        sub arg_x,2
+        add arg_y,1
+;--
+        load arg_pixel, color
+        SL0 mask_reg
+        jump nc, clear_color_skip2
+        call put_pixel
+clear_color_skip2:
+;--
+        load arg_pixel, color
+        add arg_x,1
+        SL0 mask_reg
+        jump nc, clear_color_skip3
+        call put_pixel
+clear_color_skip3:
+;--
+        load arg_pixel, color
+        add arg_x,1
+        SL0 mask_reg
+        jump nc, clear_color_skip4
+        call put_pixel
+clear_color_skip4:
+        sub arg_x,2
+        add arg_y,1
+;--
+        load arg_pixel, color
+        SL0 mask_reg
+        jump nc, clear_color_skip5
+        call put_pixel
+clear_color_skip5:
+;--
+        load arg_pixel, color
+        add arg_x,1
+        SL0 mask_reg
+        jump nc, clear_color_skip6
+        call put_pixel
+clear_color_skip6:
+;--
+        load arg_pixel, color
+        add arg_x,1
+
+        SL0 mask_reg
+        jump nc, clear_color_skip7
+        call put_pixel
+clear_color_skip7:
+
+;--
+        sub arg_x,2
+        sub arg_y,2
+        ret
+
+draw_shape_inc_state_ng:
+        load tmp_lo,0
+        load ptr_reg,1
+draw_shape_inc_state_ng_loop:
+        comp tmp_lo, shape_index
+        jump z,draw_shape_inc_state_ng_loop_done
+
+        fetch tmp_hi,(ptr_reg)
+        add ptr_reg, tmp_hi
+        add ptr_reg,1
+        add tmp_lo,1
+        jump draw_shape_inc_state_ng_loop
+
+draw_shape_inc_state_ng_loop_done:
+        fetch tmp_lo, (ptr_reg)
+        add shape_state,1
+        comp shape_state, tmp_lo
+        ret nz
+        load shape_state,0
+        ret
+
+inc_shape:
+        fetch tmp_lo, 0
+        add shape_index,1
+        comp shape_index, tmp_lo
+        ret nz
+        load shape_index,0
+        ret
+
+; x,y,shape
+; XXX:  this function has a bug
+can_we_move_down_xxx:
+        add arg_y,3
+        call get_pixel
+
+        test mask_reg,4
+        jump z, skip0
+        test arg_pixel, arg_pixel
+        jump nz, we_cant_move
+skip0:
+        add arg_x,1
+        call get_pixel
+        test mask_reg,2
+        jump z, skip1
+
+        test arg_pixel, arg_pixel
+        jump nz, we_cant_move
+skip1:
+        add arg_x,1
+        call get_pixel
+
+        test mask_reg,1
+        jump z, skip2
+
+        test arg_pixel, arg_pixel
+        jump nz, we_cant_move
+skip2:
+        load tmp_lo,1
+        comp tmp_lo,2
+        ret
+we_cant_move:
+        load tmp_lo,1
+        comp tmp_lo,1
+        ret
+
+
+can_we_move_down_ng:
+        call get_shape_mask
+        out  mask_reg, led_port
+        call can_we_move_down_xxx
+        ret
+
+hung_on_btns:
+        in tmp_lo, btn_port
+        test tmp_lo,255
+        jump nz, hung_on_btns
+        ret
+
+apply_btns:
+        in tmp_lo, btn_port
+        test tmp_lo,4
+        jump z, yyy0
+        load save_arg_y, shape_state
+        call	draw_shape_inc_state_ng
+        load arg_x,x
+        load arg_y,y
+        call can_we_move_ng
+
+        jump z, yyy0
+        ; undo
+        load shape_state, save_arg_y
+
+yyy0:
+        in tmp_lo, btn_port
+        test tmp_lo,1
+        jump nc, skip_limit_x
+        add x,1
+
+        load arg_x,x
+        load arg_y,y
+        call can_we_move_ng
+
+        jump z, skip_limit_x
+        sub x,1
+skip_limit_x:
+
+
+        in tmp_lo, btn_port
+        test tmp_lo,2
+        jump nc, skip_limit_x0
+        sub x,1
+
+        load arg_x,x
+        load arg_y,y
+        call can_we_move_ng
+
+        jump z, skip_limit_x0
+        add x,1
+
+
+skip_limit_x0:
+        ret
+
+hung_on_pause:
+pause_req:
+        in tmp_lo, sw_port
+        test tmp_lo,8
+        jump nz,pause_req
+        ret
+
+
+
+
+
+can_we_move_ng:
+        call get_shape_mask
+;--
+        load arg_pixel, color
+        add arg_x,1
+        SL0 mask_reg
+        jump nc, clear_color_skip0_ttt
+;	load arg_pixel, 0
+        call get_pixel
+        test arg_pixel,arg_pixel
+        ret nz
+;
+clear_color_skip0_ttt:
+;--
+
+;--
+        add arg_x,1
+
+        SL0 mask_reg
+        jump nc, clear_color_skip1_ttt
+        ;load arg_pixel, 0
+        call get_pixel
+        test arg_pixel,arg_pixel
+        ret nz
+
+clear_color_skip1_ttt:
+;--
+        sub arg_x,2
+        add arg_y,1
+;--
+;	load arg_pixel, color
+        SL0 mask_reg
+        jump nc, clear_color_skip2_ttt
+        ;load arg_pixel, 0
+
+        call get_pixel
+        test arg_pixel,arg_pixel
+        ret nz
+
+clear_color_skip2_ttt:
+;--
+        add arg_x,1
+        SL0 mask_reg
+        jump nc, clear_color_skip3_ttt
+        ;load arg_pixel, 0
+        call get_pixel
+        test arg_pixel,arg_pixel
+        ret nz
+
+clear_color_skip3_ttt:
+;--
+        add arg_x,1
+        SL0 mask_reg
+        jump nc, clear_color_skip4_ttt
+        call get_pixel
+        test arg_pixel,arg_pixel
+        ret nz
+
+clear_color_skip4_ttt:
+        sub arg_x,2
+        add arg_y,1
+;--
+        SL0 mask_reg
+        jump nc, clear_color_skip5_ttt
+        call get_pixel
+        test arg_pixel,arg_pixel
+        ret nz
+
+clear_color_skip5_ttt:
+;--
+        add arg_x,1
+        SL0 mask_reg
+        jump nc, clear_color_skip6_ttt
+        call get_pixel
+        test arg_pixel,arg_pixel
+        ret nz
+
+clear_color_skip6_ttt:
+;--
+        add arg_x,1
+
+        SL0 mask_reg
+        jump nc, clear_color_skip7_ttt
+        ;load arg_pixel, 0
+        call get_pixel
+        test arg_pixel,arg_pixel
+        ret nz
+
+clear_color_skip7_ttt:
+;--
+        comp arg_x,arg_x
+        ret
+
+isr:
+     RETI    ENABLE
+     ORG     0x3FF
+     JUMP    isr
