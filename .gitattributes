@@ -1,0 +1,7 @@
+* text=auto
+*.v text
+*.vhd text
+*.psm text
+*.py text
+*.ucf text
+*.mk text
